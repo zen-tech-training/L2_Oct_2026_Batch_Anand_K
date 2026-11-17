@@ -1,0 +1,48 @@
+Create ONE new file: .\story_generator_agent.ipynb,
+a LangGraph requirements analyst agent.
+
+Goal: convert a requirement into user stories, Given/When/Then acceptance criteria,
+clarifying questions, functional requirements, non-functional requirements and a short
+design, with human approval before the design. If a requirement sentence has more than
+one action joined by "and" or "or", write a separate story for each action.
+Context: the human approval uses interrupt and Command(resume=...). Use explicit
+add_conditional_edges for every route.
+LangGraph facts (use exactly this API):
+- Imports: from typing import TypedDict; from langgraph.graph import StateGraph, START, END;
+  from langgraph.checkpoint.memory import InMemorySaver; from langgraph.types import Command, interrupt.
+- The state is a TypedDict class (total=False), passed as StateGraph(StateClass). A node is a
+  function that takes state and returns a dict of updates: builder.add_node("name", fn).
+- Edges: builder.add_edge(START, "a"). Routing: builder.add_conditional_edges("a", route_fn,
+  {"label": "next_node", "other": END}), where route_fn(state) returns one of the labels. Use no
+  other arguments.
+- Compile with graph = builder.compile(checkpointer=InMemorySaver()). Run with
+  config = {"configurable": {"thread_id": "t1"}}: graph.invoke(state, config=config) runs until a node
+  calls interrupt("question"); ask yes/no with input(), then
+  graph.invoke(Command(resume=answer.lower() == "yes"), config=config).
+- A node that calls interrupt() runs again from its start on resume, so put interrupt() in its own
+  small node and print nothing before it.
+- The value passed to Command(resume=...) is what interrupt(...) returns inside that node. Store it in
+  state: approved = interrupt("question"); return {"approved": approved}. Route on state["approved"].
+- Model replies may wrap JSON in markdown fences: strip them before json.loads.
+Constraints: one file, direct ollama.chat with model gpt-oss:120b-cloud, no LangChain,
+no helper files, do not touch any other folder. Maximum 2 analysis attempts.
+Verify: plain Python (not the model) must check: valid JSON, each story starts with "As a",
+each criterion has given/when/then, every requirement ID is traced to a story, a sentence
+with "and" or "or" has at least two stories, at least one clarifying question exists, and
+both functional and non-functional requirement lists are non-empty.
+Sample requirement: "Employees can request leave online. Managers approve or reject the
+request quickly. The system must be secure and easy to use."
+Graph shape: START -> number -> analyze -> validate. After validate: valid goes to approval; invalid
+with fewer than 2 tries goes back to analyze; otherwise goes to stopped. After approval: yes goes to
+design then END; no goes to stopped then END. The approval node only calls interrupt().
+Every requirement sentence is numbered R1, R2, R3 (one per sentence) and every story names its R-number.
+When the file is run (no arguments, no typing except the yes/no answer) it runs the sample
+requirement through the graph and prints: "Clarifying questions for the stakeholder:" with each
+question; "User stories:" with each story as "US-n (Rk): As a ..." followed by its Given/When/Then line;
+"Functional requirements:" and "Non-functional requirements:" lists. Then it asks
+"Approve these stories and criteria? (yes/no): " with input(). On yes it prints "Status: Design ready"
+and the design. On no it prints "Status: Stopped: human rejected the stories" and no design. If
+validation fails twice it prints "Status: Stopped: validation failed after 2 attempts". The file
+must actually call the graph under if __name__ == "__main__".
+Make a short plan first (under 15 lines). Do not explore other folders or use research helpers.
+Do not edit files yet.
